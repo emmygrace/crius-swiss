@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "crius-swiss"
+version = "0.1.0"
+description = "Swiss Ephemeris adapter for Crius - AGPL/LGPL licensed implementation"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "AGPL-3.0"}
+authors = [
+    {name = "Emmy Grace", email = ""}
+]
+keywords = ["ephemeris", "astrology", "astronomy", "swiss-ephemeris", "celestial"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: GNU Affero General Public License v3 or later (AGPLv3+)",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Typing :: Typed",
+]
+
+dependencies = [
+    "crius-ephemeris-core>=0.1.0",
+    "pyswisseph>=2.10.0",
+    "pytz>=2023.3",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "mypy>=1.5.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+
+[tool.setuptools]
+packages = ["crius_swiss"]
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
