@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = {text = "AGPL-3.0"}
 authors = [
-    {name = "Emmy Grace", email = ""}
+    {name = "Emmy Grace"}
 ]
 keywords = ["ephemeris", "astrology", "astronomy", "swiss-ephemeris", "celestial"]
 classifiers = [

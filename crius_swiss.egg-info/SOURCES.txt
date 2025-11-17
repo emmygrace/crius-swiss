@@ -1,0 +1,12 @@
+LICENSE
+README.md
+pyproject.toml
+setup.py
+crius_swiss/__init__.py
+crius_swiss/adapter.py
+crius_swiss/py.typed
+crius_swiss.egg-info/PKG-INFO
+crius_swiss.egg-info/SOURCES.txt
+crius_swiss.egg-info/dependency_links.txt
+crius_swiss.egg-info/requires.txt
+crius_swiss.egg-info/top_level.txt
