@@ -37,14 +37,31 @@ SWEPH_PLANET_IDS = {
 
 # House system mapping
 HOUSE_SYSTEM_MAP = {
-    "placidus": b'P',
-    "whole_sign": b'W',
-    "koch": b'K',
-    "equal": b'E',
-    "regiomontanus": b'R',
-    "campanus": b'C',
-    "alcabitius": b'A',
-    "morinus": b'M',
+    "placidus": b"P",
+    "whole_sign": b"W",
+    "koch": b"K",
+    "equal": b"E",
+    "regiomontanus": b"R",
+    "campanus": b"C",
+    "alcabitius": b"A",
+    "morinus": b"M",
+}
+
+# Common ayanamsa mappings for Swiss Ephemeris
+DEFAULT_AYANAMSA = swe.SIDM_LAHIRI
+AYANAMSA_MAP = {
+    "lahiri": swe.SIDM_LAHIRI,
+    "chitrapaksha": swe.SIDM_LAHIRI,
+    "fagan_bradley": swe.SIDM_FAGAN_BRADLEY,
+    "de_luce": swe.SIDM_DELUCE,
+    "raman": swe.SIDM_RAMAN,
+    "krishnamurti": swe.SIDM_KRISHNAMURTI,
+    "yukteshwar": swe.SIDM_YUKTESHWAR,
+    "djwhal_khul": swe.SIDM_DJWHAL_KHUL,
+    "true_citra": swe.SIDM_TRUE_CITRA,
+    "true_revati": swe.SIDM_TRUE_REVATI,
+    "aryabhata": swe.SIDM_ARYABHATA,
+    "aryabhata_mean_sun": swe.SIDM_ARYABHATA_MSUN,
 }
 
 # Sign names
@@ -99,9 +116,11 @@ class SwissEphemerisAdapter:
         """
         if ephemeris_path is None:
             import os
+
             ephemeris_path = os.getenv("SWISS_EPHEMERIS_PATH", "/usr/local/share/swisseph")
         swe.set_ephe_path(ephemeris_path)
         self.ephemeris_path = ephemeris_path
+        self._current_sidereal_mode: Optional[int] = None
 
     def calc_positions(
         self,
@@ -124,6 +143,7 @@ class SwissEphemerisAdapter:
         """
         jd = _datetime_to_jd(dt_utc)
         house_system_bytes = _get_house_system_bytes(settings["house_system"])
+        flags = self._configure_flags(settings)
 
         # Calculate planets
         planets: dict[str, PlanetPosition] = {}
@@ -131,11 +151,11 @@ class SwissEphemerisAdapter:
 
         for obj_id in include_objects:
             obj_id_lower = obj_id.lower()
-            
+
             # Handle special cases
             if obj_id_lower == "south_node":
                 # South Node is 180 degrees from North Node
-                north_node_pos = self._calc_planet_position("north_node", jd)
+                north_node_pos = self._calc_planet_position("north_node", jd, flags)
                 if north_node_pos:
                     south_lon = (north_node_pos["lon"] + 180) % 360
                     planets["south_node"] = {
@@ -149,27 +169,34 @@ class SwissEphemerisAdapter:
             if obj_id_lower not in SWEPH_PLANET_IDS:
                 continue
 
-            planet_pos = self._calc_planet_position(obj_id_lower, jd)
+            planet_pos = self._calc_planet_position(obj_id_lower, jd, flags)
             if planet_pos:
                 planets[obj_id_lower] = planet_pos
 
         # Calculate houses if location is provided
         houses: Optional[HousePositions] = None
         if location:
-            houses = self._calc_houses(jd, location["lat"], location["lon"], house_system_bytes, settings["house_system"])
+            houses = self._calc_houses(
+                jd,
+                location["lat"],
+                location["lon"],
+                house_system_bytes,
+                settings["house_system"],
+                flags,
+            )
 
         return {
             "planets": planets,
             "houses": houses,
         }
 
-    def _calc_planet_position(self, planet_id: str, jd: float) -> Optional[PlanetPosition]:
+    def _calc_planet_position(self, planet_id: str, jd: float, flags: int) -> Optional[PlanetPosition]:
         """Calculate position for a single planet."""
         if planet_id not in SWEPH_PLANET_IDS:
             return None
 
         try:
-            result = swe.calc_ut(jd, SWEPH_PLANET_IDS[planet_id], swe.FLG_SWIEPH)
+            result = swe.calc_ut(jd, SWEPH_PLANET_IDS[planet_id], flags)
             if result and len(result) > 0:
                 positions = result[0]
                 longitude = positions[0] % 360
@@ -197,9 +224,10 @@ class SwissEphemerisAdapter:
         lon: float,
         house_system_bytes: bytes,
         house_system_str: str,
+        flags: int,
     ) -> HousePositions:
         """Calculate house cusps and angles."""
-        result = swe.houses_ex2(jd, lat, lon, house_system_bytes, swe.FLG_SWIEPH)
+        result = swe.houses_ex2(jd, lat, lon, house_system_bytes, flags)
 
         if not result or len(result) == 0:
             return {
@@ -240,4 +268,29 @@ class SwissEphemerisAdapter:
                 "dc": dc,
             },
         }
+
+    def _configure_flags(self, settings: EphemerisSettings) -> int:
+        """Prepare Swiss Ephemeris flags for the requested zodiac."""
+        flags = swe.FLG_SWIEPH
+        zodiac_type = settings.get("zodiac_type", "tropical")
+
+        if zodiac_type == "sidereal":
+            mode = self._resolve_ayanamsa(settings.get("ayanamsa"))
+            self._ensure_sidereal_mode(mode)
+            flags |= swe.FLG_SIDEREAL
+
+        return flags
+
+    def _resolve_ayanamsa(self, ayanamsa: Optional[str]) -> int:
+        """Map ayanamsa string to Swiss constant."""
+        if not ayanamsa:
+            return DEFAULT_AYANAMSA
+        return AYANAMSA_MAP.get(ayanamsa.lower(), DEFAULT_AYANAMSA)
+
+    def _ensure_sidereal_mode(self, mode: int) -> None:
+        """Cache sidereal mode configuration to avoid redundant calls."""
+        if self._current_sidereal_mode == mode:
+            return
+        swe.set_sid_mode(mode, 0, 0)
+        self._current_sidereal_mode = mode
 
