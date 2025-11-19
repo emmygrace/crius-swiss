@@ -7,6 +7,7 @@ crius-ephemeris-core EphemerisAdapter protocol.
 
 from datetime import datetime
 from typing import Optional
+import os
 import swisseph as swe
 import pytz
 
@@ -18,6 +19,14 @@ from crius_ephemeris_core import (
     LayerPositions,
     EphemerisAdapter,
 )
+
+from .exceptions import (
+    EphemerisFileNotFoundError,
+    EphemerisCalculationError,
+    InvalidHouseSystemError,
+    InvalidAyanamsaError,
+)
+from .validation import validate_ephemeris_path as _validate_ephemeris_path_module
 
 # Swiss Ephemeris planet IDs
 SWEPH_PLANET_IDS = {
@@ -94,7 +103,11 @@ def _datetime_to_jd(dt_utc: datetime) -> float:
 
 def _get_house_system_bytes(house_system: str) -> bytes:
     """Convert house system string to bytes format."""
-    return HOUSE_SYSTEM_MAP.get(house_system.lower(), b'P')  # Default to Placidus
+    house_system_lower = house_system.lower()
+    if house_system_lower not in HOUSE_SYSTEM_MAP:
+        valid_systems = list(HOUSE_SYSTEM_MAP.keys())
+        raise InvalidHouseSystemError(house_system, valid_systems)
+    return HOUSE_SYSTEM_MAP[house_system_lower]
 
 
 class SwissEphemerisAdapter:
@@ -105,7 +118,7 @@ class SwissEphemerisAdapter:
     the EphemerisAdapter protocol from crius-ephemeris-core.
     """
     
-    def __init__(self, ephemeris_path: Optional[str] = None):
+    def __init__(self, ephemeris_path: Optional[str] = None, validate_files: bool = True):
         """
         Initialize adapter with optional ephemeris path.
         
@@ -113,14 +126,35 @@ class SwissEphemerisAdapter:
             ephemeris_path: Path to Swiss Ephemeris data files.
                            If None, uses default /usr/local/share/swisseph
                            or SWISS_EPHEMERIS_PATH environment variable.
+            validate_files: Whether to validate ephemeris file presence on init.
+                           Set to False to skip validation (e.g., for testing).
+        
+        Raises:
+            EphemerisFileNotFoundError: If validate_files is True and files are not found
         """
         if ephemeris_path is None:
-            import os
-
             ephemeris_path = os.getenv("SWISS_EPHEMERIS_PATH", "/usr/local/share/swisseph")
-        swe.set_ephe_path(ephemeris_path)
+        
         self.ephemeris_path = ephemeris_path
+        
+        # Validate files if requested
+        if validate_files:
+            self._validate_ephemeris_path(ephemeris_path)
+        
+        swe.set_ephe_path(ephemeris_path)
         self._current_sidereal_mode: Optional[int] = None
+
+    def _validate_ephemeris_path(self, path: str) -> None:
+        """Validate that ephemeris path exists and contains expected files."""
+        is_valid, errors = _validate_ephemeris_path_module(path)
+        if not is_valid:
+            error_message = "\n".join(errors)
+            error_message += (
+                f"\n\nPlease ensure Swiss Ephemeris data files are installed.\n"
+                f"For licensing and download information, see:\n"
+                f"  https://www.astro.com/swisseph/swephinfo_e.htm"
+            )
+            raise EphemerisFileNotFoundError(path, error_message)
 
     def calc_positions(
         self,
@@ -211,10 +245,15 @@ class SwissEphemerisAdapter:
                     "retrograde": is_retrograde,
                 }
         except Exception as e:
-            # Log error but don't fail the entire calculation
-            # In a package context, we might want to use a logger if available
-            # For now, we'll just return None
-            pass
+            # Raise a more informative error
+            from datetime import datetime
+            dt = swe.revjul(jd, swe.GREG_CAL)
+            dt_obj = datetime(int(dt[0]), int(dt[1]), int(dt[2]), int(dt[3]), int(dt[4]), int(dt[5]))
+            raise EphemerisCalculationError(
+                f"Failed to calculate position for {planet_id}: {str(e)}",
+                planet_id=planet_id,
+                datetime=dt_obj,
+            ) from e
         return None
 
     def _calc_houses(
@@ -285,7 +324,11 @@ class SwissEphemerisAdapter:
         """Map ayanamsa string to Swiss constant."""
         if not ayanamsa:
             return DEFAULT_AYANAMSA
-        return AYANAMSA_MAP.get(ayanamsa.lower(), DEFAULT_AYANAMSA)
+        ayanamsa_lower = ayanamsa.lower()
+        if ayanamsa_lower not in AYANAMSA_MAP:
+            valid_ayanamsas = list(AYANAMSA_MAP.keys())
+            raise InvalidAyanamsaError(ayanamsa, valid_ayanamsas)
+        return AYANAMSA_MAP[ayanamsa_lower]
 
     def _ensure_sidereal_mode(self, mode: int) -> None:
         """Cache sidereal mode configuration to avoid redundant calls."""
